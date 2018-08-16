@@ -1,0 +1,158 @@
+---
+title: "Bad data"
+author: "Ben Williams"
+date: "July 15, 2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE, message = FALSE)
+```
+
+A "problem" with reproducible research is that you need to keep all of your error corrections in code.
+
+```{r}
+library(tidyverse)
+library(readxl)
+library(lubridate)
+```
+
+First import the data
+```{r}
+read_xlsx("bad_good_data.xlsx", sheet=1)
+```
+
+This didn't work out so well, because the column names are multi-line.
+
+Remove the column names on import and name the data "bad". 
+
+```{r}
+bad <- read_xlsx("bad_good_data.xlsx", sheet=1, range='a5:w150', col_names=F)
+```
+
+Take a look at bad.
+
+```{r}
+glimpse(bad)
+
+```
+
+Right off the bat we can see a problem - The first column "year" is a character value.
+```{r}
+glimpse(bad$X__1)
+
+bad %>% 
+  mutate(year = ifelse(is.character(X__1), 20180, X__1)) %>% glimpse()
+
+bad %>% 
+  mutate(year = as.numeric(gsub("\\*", "\\", X__1)),
+         year = ifelse(year < 1999, year + 2000, year)) -> bad
+bad$year
+
+
+
+```
+Drop any column without data, or with data estimated in an unknown fashion.
+
+```{r}
+less_bad = bad[,c(1:5, 9:12, 13, 14, 16, 18, 20)]
+```
+
+Add names to the columns
+```{r}
+names(less_bad) <- c('year', 'month','date', 'gear_type', 'Mgmt_area', 'Sample_type', 'stat_area', 'age', 'Sex', 'length_cm', 'weight_kg', 'maturity', 'lat', 'long')
+```
+
+Check the new data set
+
+```{r}
+glimpse(less_bad)
+```
+
+Now it is time for cleanup...
+
+Go through each column and double check the unique values. Correct any issues. 
+
+```{r}
+sapply(less_bad, unique)
+```
+
+ - We can see that the years after 2010 are incorrect
+ - Therefore the dates have NA (likely due to a function being used in Excel)
+ - There is a lower and upper case 'CSEO' management area
+ - Sex has multiple formats
+ - length_cm has a number of entries that look to be in mm
+ - weight_kg has a number of entries that look to be in grams
+ - multiple maturity levels (numeric and text) are present
+
+```{r}
+less_bad %>% 
+  mutate(Mgmt_area = ifelse(Mgmt_area=='cseo', 'CSEO', Mgmt_area),
+         Sample_type = 'Random',
+         Sex = case_when(Sex=='1' ~ 'male',
+                         Sex=='m' ~ 'male',
+                         Sex=='2' ~ 'female',
+                         Sex=='f' ~ 'female',
+                         Sex=='F' ~ 'female'),
+         maturity = case_when(maturity=='immature' ~ 1,
+                              maturity=='developing' ~ 2,
+                              maturity=='spwning'|maturity=='spawning' ~ 3,
+                              maturity=='spent' ~ 4,
+                              maturity=='1' ~ 1,
+                              maturity=='2' ~ 1,
+                              maturity=='3' ~ 2,
+                              maturity=='4' ~ 3,
+                              maturity=='5' ~ 3,
+                              maturity=='6' ~ 4,
+                              maturity=='7' ~ 5)) -> less_bad
+
+glimpse(less_bad)
+```
+
+Examine the age, length data, etc.
+
+```{r}
+ggplot(less_bad, aes(age, length_cm)) + geom_point()
+```
+
+```{r}
+ggplot(less_bad, aes(length_cm)) + geom_density(fill = 4, alpha = .3)
+min(less_bad$length_cm)
+max(less_bad$length_cm)
+less_bad %>% 
+  mutate(length_cm = ifelse(length_cm > 75, length_cm / 100, length_cm)) %>% 
+  ggplot(aes(length_cm)) + geom_density(fill = 4, alpha = .3)
+```
+
+Same thing for weight
+
+```{r}
+
+ggplot(less_bad, aes(weight_kg)) + geom_density(fill = 4, alpha = .3)
+
+less_bad %>% 
+  mutate(weight_kg = ifelse(weight_kg > 7.5, weight_kg / 100, weight_kg)) %>% 
+  ggplot(aes(weight_kg)) + geom_density(fill = 4, alpha = .3)
+```
+
+This should work, however it throws and error of a "non-finite value". Look at cell N135 in the spreadsheet. This isn't an accepted "NA" value so it causes a problem. 
+
+```{r}
+less_bad %>% 
+  mutate(weight_kg = ifelse(is.numeric(weight_kg), weight_kg, NA),
+        weight_kg = ifelse(weight_kg > 7.5, weight_kg / 100, weight_kg)) %>% 
+  ggplot(aes(weight_kg)) + geom_density(fill = 4, alpha = .3)
+```
+
+Double check ages
+
+```{r}
+ggplot(less_bad, aes(age)) + geom_density(fill = 4, alpha = .3)
+```
+
+```{r}
+less_bad %>% 
+  mutate(length_cm = ifelse(length_cm > 75, length_cm / 100, length_cm),
+         weight_kg = ifelse(is.numeric(weight_kg), weight_kg, NA),
+        weight_kg = ifelse(weight_kg > 7.5, weight_kg / 100, weight_kg)) -> better 
+```
